@@ -2,18 +2,22 @@
 
 Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can manage HTTP/HTTPS monitors, see current status and recent history, receive webhooks on confirmed downtime and recovery, and publish selected monitors on a public status page.
 
-## Current state (Phase 1)
+## Current state
 
-Phase 1 is foundation only. It establishes a runnable Nuxt 4 app, a separate Node.js worker entry point, PostgreSQL connectivity via Drizzle, environment validation, lint/format/test tooling, and Docker images for the web and worker targets.
+Foundation plus the core domain schema:
+
+- Nuxt 4 app, Nitro health check, separate worker entry point
+- PostgreSQL schema with ownership, scheduling, incident, and outbox invariants
+- Idempotent `pulse_test` database setup for serial integration tests
 
 Not implemented yet:
 
 - authentication and sessions
 - monitor CRUD
-- domain schema / migrations
-- scheduling, leasing, and HTTP checks
-- webhook notifications
-- public status page
+- worker scheduling / leasing loop
+- outbound HTTP checks and SSRF-safe fetch
+- webhook delivery
+- public status page UI
 
 ## Prerequisites
 
@@ -27,75 +31,88 @@ Not implemented yet:
 cp .env.example .env
 ```
 
-Required variables (validated at startup by both the web app and the worker):
-
-| Variable              | Purpose                                |
-| --------------------- | -------------------------------------- |
-| `DATABASE_URL`        | PostgreSQL connection string           |
-| `NODE_ENV`            | `development`, `production`, or `test` |
-| `NUXT_PUBLIC_APP_URL` | Public base URL of the app             |
-
-`.env.example` matches `docker-compose.yml` (Postgres on host port `5544`).
+| Variable              | Purpose                                        |
+| --------------------- | ---------------------------------------------- |
+| `DATABASE_URL`        | App/worker PostgreSQL URL (`pulse`)            |
+| `TEST_DATABASE_URL`   | Integration-test DB URL (must be `pulse_test`) |
+| `NODE_ENV`            | `development`, `production`, or `test`         |
+| `NUXT_PUBLIC_APP_URL` | Public base URL of the app                     |
 
 ## Local run
 
 ```bash
 npm install
 docker compose up -d db
+npm run db:test:setup
+npm run db:migrate
+npm run db:migrate:test
 npm run dev
 ```
 
-In a second terminal, verify the worker can reach PostgreSQL:
+Worker connectivity check:
 
 ```bash
 npm run worker:start
+```
+
+## Database
+
+```bash
+npm run db:test:setup      # create pulse_test if missing (idempotent)
+npm run db:generate        # generate migrations from db/schema.ts
+npm run db:migrate         # apply to DATABASE_URL (pulse)
+npm run db:migrate:test    # apply to TEST_DATABASE_URL (pulse_test)
 ```
 
 ## Scripts
 
-| Script                 | Purpose                                     |
-| ---------------------- | ------------------------------------------- |
-| `npm run dev`          | Start the Nuxt app                          |
-| `npm run build`        | Build the Nuxt app                          |
-| `npm run typecheck`    | Typecheck Nuxt app and worker               |
-| `npm run lint`         | ESLint                                      |
-| `npm run format`       | Prettier write                              |
-| `npm run format:check` | Prettier check                              |
-| `npm run test`         | Vitest (env parser unit tests)              |
-| `npm run db:generate`  | Generate Drizzle migrations (no schema yet) |
-| `npm run db:migrate`   | Apply Drizzle migrations                    |
-| `npm run worker:start` | One-shot worker DB connectivity check       |
-| `npm run worker:build` | Compile the worker to `dist-worker/`        |
+| Script                     | Purpose                                  |
+| -------------------------- | ---------------------------------------- |
+| `npm run dev`              | Start the Nuxt app                       |
+| `npm run build`            | Build the Nuxt app                       |
+| `npm run typecheck`        | Typecheck Nuxt app and worker            |
+| `npm run lint`             | ESLint                                   |
+| `npm run format`           | Prettier write                           |
+| `npm run format:check`     | Prettier check                           |
+| `npm run test:unit`        | Unit tests (no database)                 |
+| `npm run test:integration` | Serial schema tests against `pulse_test` |
+| `npm run test`             | Unit then integration                    |
+| `npm run db:test:setup`    | Idempotent create of `pulse_test`        |
+| `npm run db:generate`      | Generate Drizzle migrations              |
+| `npm run db:migrate`       | Migrate development database             |
+| `npm run db:migrate:test`  | Migrate `pulse_test`                     |
+| `npm run worker:start`     | One-shot worker DB connectivity check    |
+| `npm run worker:build`     | Compile the worker to `dist-worker/`     |
 
 ## Verification
 
 ```bash
-npm install
+npm ci
+docker compose up -d db
+npm run db:test:setup
+npm run db:migrate
+npm run db:migrate:test
 npm run lint
 npm run format:check
 npm run typecheck
-npm run test
+npm run test:unit
+npm run test:integration
 npm run build
-docker compose up -d db
-# No real migration exists yet — skip db:migrate until the domain-schema phase.
-curl http://localhost:3000/api/health   # with `npm run dev` running
 npm run worker:start
-docker build --target web -t pulse-web .
-docker build --target worker -t pulse-worker .
 ```
 
-Healthy database response from `/api/health`:
+Health (`GET /api/health`) when the database is reachable:
 
 ```json
-{ "status": "ok" }
+{ "status": "ok", "database": "up" }
 ```
 
-Unavailable database response (HTTP 503, no internal details):
+When unavailable (HTTP 503):
 
 ```json
-{ "status": "unavailable" }
+{ "status": "unavailable", "database": "down" }
 ```
 
 ## Architecture notes
 
-See [DECISIONS.md](./DECISIONS.md) for the significant design choices and deliberate non-goals.
+See [DECISIONS.md](./DECISIONS.md) for significant design choices and deliberate non-goals.

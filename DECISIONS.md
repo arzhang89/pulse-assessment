@@ -26,9 +26,9 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 ## PostgreSQL-native scheduling instead of Redis / BullMQ
 
-**Decision:** Schedule and claim due monitors in PostgreSQL using short transactions and `FOR UPDATE SKIP LOCKED`. Do not introduce Redis, BullMQ, Kafka, or a separate queue service for Phase 1 (or unless a concrete need appears later).
+**Decision:** Schedule and claim due monitors in PostgreSQL using short transactions and `FOR UPDATE SKIP LOCKED`. Do not introduce Redis, BullMQ, Kafka, or a separate queue service unless a concrete need appears later.
 
-**Why:** At ~10k monitors on 60s intervals, a leased row model in Postgres is enough and keeps operational surface area small. Lease expiry handles worker crashes without a separate broker. Restart safety and catch-up behavior are expressed in the schema and claim query rather than in queue-broker state.
+**Why:** At ~10k monitors on 60s intervals, a leased row model in Postgres is enough and keeps operational surface area small. Lease expiry handles worker crashes without a separate broker.
 
 **Trade-off:** No rich delayed-job tooling. Accepted to keep the system explainable and deployable as web + worker + Postgres on a small VPS.
 
@@ -36,10 +36,26 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Decision:** Single root `package.json` / `package-lock.json`. The worker is a separate runtime entry point compiled with `tsconfig.worker.json`, not an npm workspace or nested package.
 
-**Why:** Avoids packaging overhead for a small product while still sharing `db/` and `shared/` between processes. Both Docker targets install from the same lockfile and source revision.
+## Domain schema invariants
 
-## Deliberately limited initial scope
+**Decision:** Enforce ownership and idempotency in PostgreSQL: unique normalized emails, unique schedule slots, one open incident per monitor (partial unique index), one DOWN/RECOVERED outbox row per incident, lease-pair CHECKs, and bounded monitor intervals/timeouts.
 
-**Decision:** Phase 1 ships only the foundation: app shell, health check with `SELECT 1`, env validation, worker connectivity check, tooling, Docker targets, and docs. No auth, domain schema, scheduling, notifications, or status page yet.
+**Email normalization:** `CHECK (email = lower(trim(email)))` plus a UNIQUE constraint. No `citext`. Application code still normalizes on write; the CHECK rejects mixed-case or padded values that slip through.
 
-**Why:** A small, verifiable base reduces risk and keeps each later commit meaningful (schema, auth, monitors, worker loop, webhooks). Documented gaps such as production-grade retention, partitioning, backups, and distributed rate limiting remain out of scope for the assessment time box.
+**Due-monitor index:** partial index on `next_check_at WHERE enabled = true`. Lease expiry is intentionally not indexed — after the due-time filter, residual lease checks are cheap, and indexing lease columns would churn on every claim/release.
+
+**Outbox ownership:** `notification_outbox → incident → monitor → user`. No independent `user_id` / `monitor_id` FKs on the outbox. `destination_url` snapshots the webhook URL at event creation so later settings changes cannot redirect retries. Deleting a monitor cascades through incidents and removes pending outbox rows — intentional for this scope (pending notifications about deleted resources are discarded).
+
+## Test database
+
+**Decision:** Use a separate `pulse_test` database on the same local Postgres instance, created by an idempotent `npm run db:test:setup` that connects to the `postgres` maintenance DB and issues `CREATE DATABASE` only when absent.
+
+**Why:** Docker entrypoint init scripts do not re-run on an already-initialized volume. A dedicated DB keeps destructive constraint tests away from development data. Integration tests run serially and refuse to proceed unless `current_database()` is exactly `pulse_test`.
+
+**Trade-off:** Requires `TEST_DATABASE_URL` and an explicit setup step. Avoids Testcontainers and schema `search_path` complexity.
+
+## Deliberately limited scope so far
+
+**Decision:** Auth endpoints, monitor CRUD, worker claiming loops, outbound HTTP checks, webhook delivery, and status-page UI remain later slices.
+
+**Why:** Schema and invariants first, then behavior on top of a verified data model.
