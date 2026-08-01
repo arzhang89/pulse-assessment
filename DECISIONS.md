@@ -60,8 +60,18 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Why:** Flapping must not spam notifications. Two consecutive failures confirm DOWN (`OPEN_INCIDENT`); two consecutive successes from DOWN confirm recovery (`RESOLVE_INCIDENT`). UNKNOWN → UP on first success creates no notification. Counters cap at the threshold so stored state never drifts to unbounded values. The function returns new data and never mutates its input; database I/O stays outside this module.
 
+## Session authentication
+
+**Decision:** Server-side sessions with HttpOnly cookies; only SHA-256(token) stored in PostgreSQL. Passwords hashed with Node `crypto.scrypt` (async) in a versioned self-describing format (`scrypt$v=1$N=...`).
+
+**Why:** Avoids JWTs and native Argon2/bcrypt bindings in Alpine Docker. scrypt parameters are encoded in the stored string for future upgrades. Login always performs a verify (dummy hash when the email is unknown) before returning `INVALID_CREDENTIALS`.
+
+**CSRF:** State-changing routes require an exact `Origin` match to `NUXT_PUBLIC_APP_URL.origin`. Missing Origin is rejected. SameSite=Lax is defense-in-depth, not sufficient alone. No permissive CORS. Secure cookies only in production.
+
+**Sessions:** 14-day TTL; multiple concurrent sessions allowed; logout is idempotent. Expired-session row cleanup is deferred.
+
 ## Deliberately limited scope so far
 
-**Decision:** Auth endpoints, monitor CRUD, worker claiming loops, outbound HTTP checks, webhook delivery, and status-page UI remain later slices.
+**Decision:** Monitor CRUD UI, worker claiming loops, outbound HTTP checks, webhook delivery, and status-page UI remain later slices (monitor API may land before the dashboard).
 
-**Why:** Schema and invariants first, then behavior on top of a verified data model.
+**Why:** Deliver auth and tenant boundaries before background checking and notifications.

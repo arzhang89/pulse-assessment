@@ -7,20 +7,32 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['tests/**/*.test.ts'],
-          exclude: ['tests/**/*.integration.test.ts'],
+          exclude: ['tests/**/*.integration.test.ts', 'tests/**/*.http.test.ts'],
+          environment: 'node',
         },
       },
       {
         test: {
           name: 'integration',
           include: ['tests/**/*.integration.test.ts'],
-          // Shared pulse_test DB with TRUNCATE between tests — never parallelize.
+          environment: 'node',
           fileParallelism: false,
-          sequence: {
-            concurrent: false,
-          },
+          sequence: { concurrent: false },
           pool: 'forks',
           maxWorkers: 1,
+        },
+      },
+      {
+        test: {
+          name: 'http',
+          include: ['tests/**/*.http.test.ts'],
+          environment: 'node',
+          fileParallelism: false,
+          sequence: { concurrent: false },
+          pool: 'forks',
+          maxWorkers: 1,
+          testTimeout: 120_000,
+          hookTimeout: 180_000,
         },
       },
     ],
