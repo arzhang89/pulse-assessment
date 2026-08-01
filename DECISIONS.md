@@ -70,8 +70,16 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Sessions:** 14-day TTL; multiple concurrent sessions allowed; logout is idempotent. Expired-session row cleanup is deferred.
 
+## Monitor scheduling and URL changes
+
+**Decision:** `next_check_at = now + random(0..min(30s, interval))` via a shared helper. URL changes reset live status/counters/lease and schedule a fresh check, but keep historical `check_results`.
+
+**Why:** A monitor represents a logical service whose endpoint may change over time. History stays attached. Create-time URL validation covers scheme and credentials only — DNS/IP SSRF pinning belongs with the outbound checker.
+
+**Tenant isolation:** Every monitor query includes `user_id = authenticatedUserId`. Missing, malformed, and other-tenant IDs all return the same `404 NOT_FOUND`.
+
 ## Deliberately limited scope so far
 
-**Decision:** Monitor CRUD UI, worker claiming loops, outbound HTTP checks, webhook delivery, and status-page UI remain later slices (monitor API may land before the dashboard).
+**Decision:** Dashboard UI, worker claiming loops, outbound HTTP checks, webhook delivery, and public status page remain later slices.
 
-**Why:** Deliver auth and tenant boundaries before background checking and notifications.
+**Why:** Auth and tenant-scoped monitor APIs first; UI and background checking next.

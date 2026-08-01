@@ -1,28 +1,10 @@
-import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { fetch, setup } from '@nuxt/test-utils/e2e'
+import { fetch } from '@nuxt/test-utils/e2e'
 import { assertTestDatabaseName, closeTestDb, truncateAllTables } from './helpers/db'
 import { TEST_APP_ORIGIN, cookieHeader, getSessionCookie, jsonHeaders } from './helpers/http'
+import { ensureNuxtHttpSetup } from './helpers/nuxt-http-setup'
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL
-if (!testDatabaseUrl) {
-  throw new Error('TEST_DATABASE_URL is required for HTTP tests')
-}
-
-process.env.DATABASE_URL = testDatabaseUrl
-process.env.NUXT_PUBLIC_APP_URL = TEST_APP_ORIGIN
-process.env.NODE_ENV = 'test'
-
-await setup({
-  rootDir: fileURLToPath(new URL('..', import.meta.url)),
-  server: true,
-  browser: false,
-  env: {
-    DATABASE_URL: testDatabaseUrl,
-    NUXT_PUBLIC_APP_URL: TEST_APP_ORIGIN,
-    NODE_ENV: 'test',
-  },
-})
+await ensureNuxtHttpSetup()
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text()
