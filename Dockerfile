@@ -1,18 +1,12 @@
 # syntax=docker/dockerfile:1
 
-# Single Dockerfile, two runtime images (web, worker), built from the same
-# source revision and the same package-lock.json so both processes always
-# run dependency-identical code.
+# Single Dockerfile, three runtime images (web, worker, migrate), built from
+# the same source revision and package-lock.json.
 
-# Pin the same Node patch as .nvmrc so local and container builds share
-# one known-good 22.x release (meets package.json engines >=22.18.0).
 FROM node:22.23.0-alpine AS base
 WORKDIR /app
 COPY package.json package-lock.json ./
-# --ignore-scripts: the "postinstall" hook runs `nuxt prepare`, which needs
-# the Nuxt app source (nuxt.config.ts, app/, ...) that isn't copied in yet
-# at this point. It's run explicitly in the "build" stage instead, once
-# the full source is present.
+# --ignore-scripts: postinstall runs `nuxt prepare`, which needs full source.
 RUN npm ci --ignore-scripts
 
 FROM base AS build
@@ -22,24 +16,41 @@ RUN npm run build
 RUN npm run worker:build
 
 # --- web ---
-# Nuxt's Nitro "node-server" output (.output) is self-contained: it
-# bundles the server runtime and its production dependencies, so no
-# npm install is needed in this stage.
+# Nitro node-server output is self-contained.
 FROM node:22.23.0-alpine AS web
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /app/.output ./.output
+ENV HOST=0.0.0.0
+ENV PORT=3000
+COPY --from=build --chown=node:node /app/.output ./.output
+USER node
 EXPOSE 3000
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 CMD ["node", ".output/server/index.mjs"]
 
 # --- worker ---
-# Standalone worker: compiled JS plus production dependencies
-# (pg, drizzle-orm, zod, p-limit, ipaddr.js). --ignore-scripts skips the
-# Nuxt postinstall hook, which this image has no use for.
 FROM node:22.23.0-alpine AS worker
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts
-COPY --from=build /app/dist-worker ./dist-worker
+RUN npm ci --omit=dev --ignore-scripts \
+  && chown -R node:node /app
+COPY --from=build --chown=node:node /app/dist-worker ./dist-worker
+USER node
 CMD ["node", "dist-worker/worker/src/index.js"]
+
+# --- migrate ---
+# Production migrator only: drizzle-orm migrator + compiled runner + SQL files.
+# Does not install or invoke drizzle-kit.
+FROM node:22.23.0-alpine AS migrate
+WORKDIR /app
+ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+  && chown -R node:node /app
+COPY --from=build --chown=node:node /app/dist-worker/db ./dist-worker/db
+COPY --from=build --chown=node:node /app/dist-worker/shared ./dist-worker/shared
+COPY --chown=node:node db/migrations ./db/migrations
+USER node
+CMD ["node", "dist-worker/db/migrate.js"]

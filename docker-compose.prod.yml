@@ -1,0 +1,146 @@
+# Production Compose stack. Local development continues to use docker-compose.yml.
+#
+# Deploy sequence (documented; do not auto-migrate from web/worker):
+#   docker compose -f docker-compose.prod.yml config
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d db
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+#   docker compose -f docker-compose.prod.yml up -d caddy web worker
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pulse_prod_db_data:/var/lib/postgresql/data
+    networks:
+      - pulse_prod
+    healthcheck:
+      # Interpolated at compose time from the env file (not left for the container shell).
+      test: ['CMD-SHELL', 'pg_isready -U "${POSTGRES_USER}" -d "${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_ENV: production
+      NUXT_PUBLIC_APP_URL: ${NUXT_PUBLIC_APP_URL}
+    networks:
+      - pulse_prod
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  web:
+    build:
+      context: .
+      target: web
+    restart: unless-stopped
+    user: node
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_ENV: production
+      NUXT_PUBLIC_APP_URL: ${NUXT_PUBLIC_APP_URL}
+      HOST: 0.0.0.0
+      PORT: '3000'
+      NITRO_HOST: 0.0.0.0
+      NITRO_PORT: '3000'
+    networks:
+      - pulse_prod
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    user: node
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_ENV: production
+      NUXT_PUBLIC_APP_URL: ${NUXT_PUBLIC_APP_URL}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-20}
+      WORKER_NOTIFICATION_CONCURRENCY: ${WORKER_NOTIFICATION_CONCURRENCY:-10}
+      WORKER_POLL_INTERVAL_MS: ${WORKER_POLL_INTERVAL_MS:-1000}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-60}
+      WORKER_SHUTDOWN_GRACE_MS: ${WORKER_SHUTDOWN_GRACE_MS:-60000}
+      WORKER_DELIVERY_TIMEOUT_MS: ${WORKER_DELIVERY_TIMEOUT_MS:-10000}
+      WORKER_ID: ${WORKER_ID:-}
+    networks:
+      - pulse_prod
+    depends_on:
+      db:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - pulse_prod_caddy_data:/data
+      - pulse_prod_caddy_config:/config
+    networks:
+      - pulse_prod
+    depends_on:
+      - web
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+networks:
+  pulse_prod:
+    driver: bridge
+
+volumes:
+  pulse_prod_db_data:
+  pulse_prod_caddy_data:
+  pulse_prod_caddy_config:

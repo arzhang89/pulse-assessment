@@ -14,6 +14,8 @@ dist-worker/
 .env.*
 !.env.example
 !.env.test
+!.env.production.example
+.env.prod.smoke
 
 # Logs
 *.log

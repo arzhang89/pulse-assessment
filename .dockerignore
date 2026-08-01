@@ -6,8 +6,12 @@ dist-worker
 .env
 .env.*
 !.env.example
+!.env.production.example
 *.log
 .DS_Store
 _assessment
-README.md
-DECISIONS.md
+tests
+coverage
+*.md
+!package.json
+!package-lock.json

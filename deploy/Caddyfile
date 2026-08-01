@@ -1,0 +1,7 @@
+# TLS via Let's Encrypt when DOMAIN has public DNS to this host.
+# Optional contact email can be configured with a Caddy global block if desired:
+#   { email ops@example.com }
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}

@@ -18,5 +18,15 @@ export default defineNuxtConfig({
     strict: true,
   },
 
+  // Production images must not ship client/server source maps.
+  sourcemap: {
+    client: false,
+    server: false,
+  },
+
+  nitro: {
+    sourceMap: false,
+  },
+
   devtools: { enabled: false },
 })

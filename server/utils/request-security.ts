@@ -1,4 +1,4 @@
-import type { H3Event } from 'h3'
+import { getHeader, type H3Event } from 'h3'
 import { getEnv } from '../../shared/env'
 import { AppError } from './errors'
 
