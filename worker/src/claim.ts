@@ -6,6 +6,7 @@ export type ClaimedMonitor = {
   name: string
   url: string
   intervalSeconds: number
+  timeoutMs: number
   status: 'UNKNOWN' | 'UP' | 'DOWN'
   consecutiveFailures: number
   consecutiveSuccesses: number
@@ -46,6 +47,7 @@ export async function claimDueMonitors(params: ClaimMonitorsParams): Promise<Cla
     name: string
     url: string
     interval_seconds: number
+    timeout_ms: number
     status: 'UNKNOWN' | 'UP' | 'DOWN'
     consecutive_failures: number
     consecutive_successes: number
@@ -80,6 +82,7 @@ export async function claimDueMonitors(params: ClaimMonitorsParams): Promise<Cla
       m.name,
       m.url,
       m.interval_seconds,
+      m.timeout_ms,
       m.status,
       m.consecutive_failures,
       m.consecutive_successes,
@@ -96,6 +99,7 @@ export async function claimDueMonitors(params: ClaimMonitorsParams): Promise<Cla
     name: row.name,
     url: row.url,
     intervalSeconds: row.interval_seconds,
+    timeoutMs: row.timeout_ms,
     status: row.status,
     consecutiveFailures: row.consecutive_failures,
     consecutiveSuccesses: row.consecutive_successes,

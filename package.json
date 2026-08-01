@@ -24,6 +24,7 @@
     "db:migrate:test": "tsx --env-file=.env scripts/db-migrate-test.ts",
     "db:test:setup": "tsx --env-file=.env scripts/db-test-setup.ts",
     "worker:start": "tsx --env-file=.env worker/src/index.ts",
+    "worker:once": "tsx --env-file=.env worker/src/index.ts --once",
     "worker:build": "tsc -p tsconfig.worker.json"
   },
   "dependencies": {

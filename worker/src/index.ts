@@ -1,38 +1,82 @@
-import { getEnv } from '../../shared/env.js'
 import { getPool } from '../../db/client.js'
+import { getWorkerConfig } from './config.js'
+import { createProcessClaimed } from './process-claimed.js'
+import { startWorkerRuntime } from './runtime.js'
+import { createWorkerId } from './worker-id.js'
 
-/**
- * Worker entry point (Commit 1 boundary).
- *
- * Claim SQL, concurrency, and shutdown primitives live under worker/src/,
- * but this production entry must NOT claim real monitors until the checker
- * and persistence pipeline exist (Commit 3). Until then this process only
- * validates env and proves database connectivity, then exits.
- */
-async function main(): Promise<void> {
-  getEnv()
-  const pool = getPool()
+function parseOnceFlag(argv: string[]): boolean {
+  return argv.includes('--once') || process.env.WORKER_ONCE === '1'
+}
 
-  try {
-    const result = await pool.query('select 1 as ok')
-    console.log(
-      JSON.stringify({
-        level: 'info',
-        msg: 'worker database connectivity check succeeded',
-        result: result.rows[0],
-        timestamp: new Date().toISOString(),
-      }),
-    )
-  } finally {
-    await pool.end()
+function structuredLogger() {
+  return {
+    info: (msg: string, meta?: Record<string, unknown>) => {
+      console.log(
+        JSON.stringify({ level: 'info', msg, ...meta, timestamp: new Date().toISOString() }),
+      )
+    },
+    warn: (msg: string, meta?: Record<string, unknown>) => {
+      console.warn(
+        JSON.stringify({ level: 'warn', msg, ...meta, timestamp: new Date().toISOString() }),
+      )
+    },
+    error: (msg: string, meta?: Record<string, unknown>) => {
+      console.error(
+        JSON.stringify({ level: 'error', msg, ...meta, timestamp: new Date().toISOString() }),
+      )
+    },
   }
+}
+
+async function main(): Promise<void> {
+  const once = parseOnceFlag(process.argv)
+  const config = getWorkerConfig()
+  const workerId = createWorkerId(config.workerId)
+  const pool = getPool()
+  const logger = structuredLogger()
+
+  logger.info('worker_starting', {
+    workerId,
+    once,
+    concurrency: config.concurrency,
+    pollIntervalMs: config.pollIntervalMs,
+    leaseSeconds: config.leaseSeconds,
+    shutdownGraceMs: config.shutdownGraceMs,
+  })
+
+  const processClaimed = createProcessClaimed({
+    pool,
+    workerId,
+    logger,
+  })
+
+  const runtime = startWorkerRuntime({
+    pool,
+    config,
+    workerId,
+    processClaimed,
+    once,
+    logger,
+  })
+
+  const onSignal = (signal: string) => {
+    logger.info('worker_signal', { workerId, signal })
+    runtime.shutdown()
+  }
+
+  process.on('SIGINT', () => onSignal('SIGINT'))
+  process.on('SIGTERM', () => onSignal('SIGTERM'))
+
+  await runtime.done
+  await pool.end()
+  logger.info('worker_stopped', { workerId, once })
 }
 
 main().catch((error: unknown) => {
   console.error(
     JSON.stringify({
       level: 'error',
-      msg: 'worker database connectivity check failed',
+      msg: 'worker_fatal',
       error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString(),
     }),

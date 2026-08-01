@@ -33,9 +33,9 @@ EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
 
 # --- worker ---
-# Standalone worker: compiled JS plus only its production dependencies
-# (pg, drizzle-orm, zod). --ignore-scripts skips the Nuxt postinstall
-# hook, which this image has no use for.
+# Standalone worker: compiled JS plus production dependencies
+# (pg, drizzle-orm, zod, p-limit, ipaddr.js). --ignore-scripts skips the
+# Nuxt postinstall hook, which this image has no use for.
 FROM node:22.23.0-alpine AS worker
 WORKDIR /app
 ENV NODE_ENV=production

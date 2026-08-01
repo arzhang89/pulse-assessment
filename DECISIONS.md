@@ -78,8 +78,28 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Tenant isolation:** Every monitor query includes `user_id = authenticatedUserId`. Missing, malformed, and other-tenant IDs all return the same `404 NOT_FOUND`.
 
+## Worker claiming and leases
+
+**Decision:** Claim due monitors with a CTE + `UPDATE … RETURNING`, `FOR UPDATE SKIP LOCKED`, and `make_interval(secs => $leaseSeconds)`. Claim batch size is free concurrency capacity. Lease acquire does not bump `updated_at`. The original `next_check_at` is returned as `scheduledFor` and remains the stale-work guard until persistence succeeds.
+
+**Shutdown:** stop claiming → wait for in-flight work → on grace expiry abort remaining checks via `AbortSignal` → do not clear their leases (they expire naturally).
+
+## SSRF-safe checks
+
+**Decision:** Resolve DNS, reject if any address matches an explicit forbidden-range policy (`ipaddr.js`, including IPv4-mapped forms), then connect with `agent: false` and a custom `lookup` that returns only the selected validated IP while retaining the original hostname for Host / TLS SNI / certificate verification. Literal IP URLs connect directly without forcing IP SNI. One deadline starts before DNS and covers DNS + TCP + TLS + response headers; the body is not buffered.
+
+## Atomic persistence and outbox
+
+**Decision:** After each check, open a short transaction, lock the monitor, require `lease_owner = workerId` and `next_check_at = scheduledFor`, insert `check_results` with `ON CONFLICT (monitor_id, scheduled_for) DO NOTHING`, then apply the pure state machine, cadence, incidents, and outbox rows before clearing the lease.
+
+**Cadence:** `candidate = scheduledFor + interval`; if `candidate > finishedAt` use `candidate`, else `finishedAt + interval`.
+
+**Stale work:** URL/interval/disable/re-enable clear the lease pair (and reschedule except disable). Name/isPublic edits do not. Stale or duplicate results must not mutate status/history/incidents/`next_check_at` (duplicates may clear an owned lease only).
+
+**Outbox payload:** versioned JSON without the monitor URL. `eventId` is generated before insert and equals the outbox primary key. `destination_url` snapshots the webhook URL when settings are enabled.
+
 ## Deliberately limited scope so far
 
-**Decision:** Dashboard UI, worker claiming loops, outbound HTTP checks, webhook delivery, and public status page remain later slices.
+**Decision:** Webhook delivery/retries from the outbox and the public status page remain later slices.
 
-**Why:** Auth and tenant-scoped monitor APIs first; UI and background checking next.
+**Why:** Claiming, checking, and durable incident/outbox enqueue are enough to prove the monitoring path; delivery can be added without changing the persistence contract.
