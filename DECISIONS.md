@@ -86,7 +86,7 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 ## SSRF-safe checks
 
-**Decision:** Resolve DNS, reject if any address matches an explicit forbidden-range policy (`ipaddr.js`, including IPv4-mapped forms), then connect with `agent: false` and a custom `lookup` that returns only the selected validated IP while retaining the original hostname for Host / TLS SNI / certificate verification. Literal IP URLs connect directly without forcing IP SNI. One deadline starts before DNS and covers DNS + TCP + TLS + response headers; the body is not buffered.
+**Decision:** Every outbound request resolves DNS and validates the full address set against an explicit forbidden-range policy (`ipaddr.js`, including IPv4-mapped forms). One approved address is pinned for that attempt via a custom `lookup` (`agent: false`); the HTTP client does not independently re-resolve during the request. Future attempts may receive different DNS results, and each attempt validates those results again. The original hostname is retained for Host / TLS SNI / certificate verification. Literal IP URLs connect directly without forcing IP SNI. One deadline starts before DNS and covers DNS + TCP + TLS + response headers; the body is not buffered.
 
 ## Atomic persistence and outbox
 
@@ -112,8 +112,12 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Classification:** Success = HTTP 200–299. Retryable = DNS/connect/TLS/timeout, 408/425/429, 5xx. Terminal = 3xx (no redirects), other 4xx, forbidden/invalid destination. Max attempts = 8; delays 30s → 2m → 10m → 1h (capped).
 
+## Public status pages
+
+**Decision:** Unauthenticated `/status/:slug` and `GET /api/public/status/:slug` expose only enabled + public monitors for a user's `status_page_slug`. Unknown slug → 404; known slug with zero public monitors → empty 200. No application-level caching. Public DTO excludes URL, errors, status codes, history, incidents, and account identifiers.
+
 ## Deliberately limited scope so far
 
-**Decision:** Public status page UI and check-history dashboard remain later slices. Webhook signing is intentionally omitted.
+**Decision:** Webhook signing, email notifications, multiple destinations, charts, retention/partitioning, and production deploy hardening remain later. Deploy is the next phase.
 
-**Why:** Settings + durable outbox delivery complete the notification path without expanding auth or multi-destination complexity.
+**Why:** Core product behavior (settings, delivery, history, public status) is complete and explainable within the assessment timebox.

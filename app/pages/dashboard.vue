@@ -226,6 +226,14 @@ function formatInterval(seconds: number): string {
   return intervalOptions.find((option) => option.value === seconds)?.label ?? `${seconds}s`
 }
 
+const statusPageAbsoluteUrl = computed(() => {
+  const slug = meData.value?.user.statusPageSlug
+  if (!slug || !import.meta.client) {
+    return slug ? `/status/${slug}` : ''
+  }
+  return `${window.location.origin}/status/${slug}`
+})
+
 function formatWhen(value: string | null): string {
   if (!value) return 'Never'
   return new Date(value).toLocaleString()
@@ -281,6 +289,31 @@ function resultDetail(result: HistoryResult): string {
     </header>
 
     <div class="stack">
+      <section
+        v-if="meData?.user.statusPageSlug"
+        class="panel stack"
+        aria-labelledby="status-link-title"
+      >
+        <h2 id="status-link-title">Public status page</h2>
+        <p class="muted">
+          Share this unauthenticated page. Only enabled monitors marked public appear there.
+        </p>
+        <p>
+          <NuxtLink :to="`/status/${meData.user.statusPageSlug}`">
+            /status/{{ meData.user.statusPageSlug }}
+          </NuxtLink>
+        </p>
+        <label>
+          Copyable URL
+          <input
+            :value="statusPageAbsoluteUrl"
+            readonly
+            aria-label="Public status page URL"
+            @focus="($event.target as HTMLInputElement).select()"
+          />
+        </label>
+      </section>
+
       <section class="panel stack" aria-labelledby="webhook-settings-title">
         <h2 id="webhook-settings-title">Webhook notifications</h2>
         <p class="muted">

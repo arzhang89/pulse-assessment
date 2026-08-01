@@ -15,12 +15,13 @@ Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can man
 - Authenticated webhook notification settings (one destination per user)
 - At-least-once webhook delivery from the notification outbox
 - Authenticated recent check history on the dashboard
+- Public unauthenticated status pages (`/status/:slug`)
 - Idempotent `pulse_test` database setup and serial API/HTTP tests
 
 Not implemented yet:
 
-- public status page UI
 - charts / retention tooling
+- production deployment hardening
 
 ## Prerequisites
 
