@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Nuxt / Nitro build output
+.nuxt/
+.output/
+.data/
+
+# Worker build output
+dist-worker/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# OS
+.DS_Store

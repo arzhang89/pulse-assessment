@@ -1,0 +1,27 @@
+version: '3.8'
+
+# Phase 1: local PostgreSQL only. The web and worker services are added
+# once there is real application code worth running in containers (a
+# permanently running worker placeholder would just be noise right now).
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: pulse
+    ports:
+      # Host port 5544 (not the default 5432) to avoid colliding with any
+      # PostgreSQL already running locally on the default port.
+      - '5544:5432'
+    volumes:
+      - pulse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pulse -d pulse']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pulse_db_data:

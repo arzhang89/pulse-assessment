@@ -1,0 +1,13 @@
+node_modules
+.nuxt
+.output
+dist-worker
+.git
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+_assessment
+README.md
+DECISIONS.md

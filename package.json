@@ -1,0 +1,45 @@
+{
+  "name": "pulse",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "postinstall": "nuxt prepare",
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck && tsc --noEmit -p tsconfig.worker.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "worker:start": "tsx --env-file=.env worker/src/index.ts",
+    "worker:build": "tsc -p tsconfig.worker.json"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2",
+    "nuxt": "4.4.8",
+    "pg": "8.22.0",
+    "vue": "3.5.40",
+    "vue-router": "5.2.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@nuxt/eslint": "1.16.0",
+    "@types/node": "26.1.2",
+    "@types/pg": "8.20.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "10.8.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.6",
+    "tsx": "4.23.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10",
+    "vue-tsc": "3.3.9"
+  }
+}

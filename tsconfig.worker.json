@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "./dist-worker",
+    "rootDir": ".",
+    "types": ["node"],
+    "noEmit": false,
+    "noEmitOnError": true
+  },
+  "include": ["worker/src/**/*.ts", "db/**/*.ts", "shared/**/*.ts"]
+}
