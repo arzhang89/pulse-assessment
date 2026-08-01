@@ -16,13 +16,13 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Why:** Outbound HTTP checks must not compete with request handling. A separate process can be scaled and restarted independently, and it makes the "checks run without a browser" requirement explicit.
 
-**Trade-off:** Two runtime images to build and operate. Mitigated by a single repository, shared modules (`db/`, `shared/`), and one multi-stage Dockerfile with `web` and `worker` targets.
+**Trade-off:** Multiple runtime images to build and operate. Mitigated by a single repository, shared modules (`db/`, `shared/`), and one multi-stage Dockerfile with distinct `web`, `worker`, and `migrate` targets.
 
 ## PostgreSQL with Drizzle ORM
 
-**Decision:** PostgreSQL as the system of record; Drizzle ORM + Drizzle Kit for typed access and migrations; `node-postgres` (`pg`) as the driver.
+**Decision:** PostgreSQL as the system of record; Drizzle ORM + Drizzle Kit for local schema generation and developer migrations; `node-postgres` (`pg`) as the driver; production applies SQL via the drizzle-orm migrator entry point.
 
-**Why:** Relational data fits tenants, monitors, check history, incidents, and an outbox cleanly. Drizzle stays close to SQL (important for leasing with `FOR UPDATE SKIP LOCKED`) without the weight of a heavier ORM.
+**Why:** Relational data fits tenants, monitors, check history, incidents, and an outbox cleanly. Drizzle stays close to SQL (important for leasing with `FOR UPDATE SKIP LOCKED`) without the weight of a heavier ORM. Keeping drizzle-kit out of the production migrate image avoids shipping a large development toolchain.
 
 ## PostgreSQL-native scheduling instead of Redis / BullMQ
 
@@ -114,10 +114,22 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 ## Public status pages
 
-**Decision:** Unauthenticated `/status/:slug` and `GET /api/public/status/:slug` expose only enabled + public monitors for a user's `status_page_slug`. Unknown slug → 404; known slug with zero public monitors → empty 200. No application-level caching. Public DTO excludes URL, errors, status codes, history, incidents, and account identifiers.
+**Decision:** Unauthenticated `/status/:slug` and `GET /api/public/status/:slug` expose only enabled + public monitors for a user's `status_page_slug`. Unknown slug → 404; known slug with zero public monitors → empty 200. No application-level caching. Public DTO excludes URL, errors, status codes, history, incidents, and account identifiers. Dashboard copy links use `window.location.origin` so they follow the browser origin rather than a build-time constant.
 
-## Deliberately limited scope so far
+## Production deployment
 
-**Decision:** Webhook signing, email notifications, multiple destinations, charts, retention/partitioning, and production deploy hardening remain later. Deploy is the next phase.
+**Decision:** Production Compose (`docker-compose.prod.yml`) runs Caddy + web + worker + migrate + PostgreSQL on one private network. Only Caddy publishes host ports `80`/`443`. Local `docker-compose.yml` remains for development.
 
-**Why:** Core product behavior (settings, delivery, history, public status) is complete and explainable within the assessment timebox.
+**Migrations:** A compiled `db/migrate.ts` uses `drizzle-orm/node-postgres/migrator` against `db/migrations`. The dedicated `migrate` image installs production dependencies only (no drizzle-kit). Web and worker never auto-migrate.
+
+**Runtime config:** `NUXT_PUBLIC_APP_URL` and `DATABASE_URL` are validated from `process.env` at process start (`shared/env.ts`). Trusted-Origin checks and Secure cookie behavior therefore follow the container runtime environment, not a value frozen at image build. Production builds disable client/server source maps.
+
+**Hardening:** `web` and `worker` run as `USER node`, with `read_only`, `/tmp` tmpfs, `no-new-privileges`, and rotated json-file logs. Capability drops were not applied to Caddy or PostgreSQL.
+
+**Deploy sequence:** validate config → build → `up -d db` → `run --rm migrate` → `up -d caddy web worker`.
+
+## Deliberately limited scope
+
+**Decision:** Webhook signing, email notifications, multiple destinations, charts, and retention/partitioning remain out of scope for this assessment.
+
+**Why:** Core product behavior and a production-shaped Compose deploy are complete and explainable within the assessment timebox. Remote VPS cutover still requires an explicitly authorized host, domain, DNS, and SSH path.
