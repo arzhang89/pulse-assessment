@@ -4,11 +4,12 @@ Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can man
 
 ## Current state
 
-Foundation plus the core domain schema:
+Foundation plus the core domain schema and pure monitor status transitions:
 
 - Nuxt 4 app, Nitro health check, separate worker entry point
 - PostgreSQL schema with ownership, scheduling, incident, and outbox invariants
 - Idempotent `pulse_test` database setup for serial integration tests
+- Framework-independent status state machine with saturating counters
 
 Not implemented yet:
 

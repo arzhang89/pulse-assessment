@@ -54,6 +54,12 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Trade-off:** Requires `TEST_DATABASE_URL` and an explicit setup step. Avoids Testcontainers and schema `search_path` complexity.
 
+## Monitor status transitions
+
+**Decision:** Keep status transitions in a pure module (`shared/monitor-status.ts`) with named thresholds (`FAILURES_TO_CONFIRM_DOWN = 2`, `SUCCESSES_TO_CONFIRM_RECOVERY = 2`) and saturating counters.
+
+**Why:** Flapping must not spam notifications. Two consecutive failures confirm DOWN (`OPEN_INCIDENT`); two consecutive successes from DOWN confirm recovery (`RESOLVE_INCIDENT`). UNKNOWN → UP on first success creates no notification. Counters cap at the threshold so stored state never drifts to unbounded values. The function returns new data and never mutates its input; database I/O stays outside this module.
+
 ## Deliberately limited scope so far
 
 **Decision:** Auth endpoints, monitor CRUD, worker claiming loops, outbound HTTP checks, webhook delivery, and status-page UI remain later slices.
