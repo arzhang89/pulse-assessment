@@ -38,6 +38,16 @@ export function getTestDb(): NodePgDatabase<typeof schema> {
   return db
 }
 
+export function getTestPool(): Pool {
+  if (!pool) {
+    getTestDb()
+  }
+  if (!pool) {
+    throw new Error('Test pool was not initialized')
+  }
+  return pool
+}
+
 export async function assertTestDatabaseName(): Promise<void> {
   if (!pool) {
     getTestDb()

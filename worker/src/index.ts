@@ -2,17 +2,12 @@ import { getEnv } from '../../shared/env.js'
 import { getPool } from '../../db/client.js'
 
 /**
- * Phase 1 worker entry point.
+ * Worker entry point (Commit 1 boundary).
  *
- * This intentionally does NOT schedule or run checks yet. It only proves
- * that the worker can validate its own environment (independently of the
- * Nuxt app) and reach PostgreSQL through the same shared `db/client`
- * module used by the server. Scheduling, leasing, and check execution are
- * added in a later phase.
- *
- * By design this process runs once and exits — it must not loop or be
- * configured to auto-restart, so failures are visible immediately rather
- * than hidden behind a restart policy.
+ * Claim SQL, concurrency, and shutdown primitives live under worker/src/,
+ * but this production entry must NOT claim real monitors until the checker
+ * and persistence pipeline exist (Commit 3). Until then this process only
+ * validates env and proves database connectivity, then exits.
  */
 async function main(): Promise<void> {
   getEnv()

@@ -140,6 +140,8 @@ export async function updateMonitorForUser(
     patch.enabled = input.enabled
   }
 
+  // URL/interval/enable changes invalidate in-flight work by clearing the
+  // lease pair and advancing next_check_at (except disable, which only clears).
   if (urlChanged) {
     patch.status = 'UNKNOWN'
     patch.consecutiveFailures = 0
@@ -153,6 +155,8 @@ export async function updateMonitorForUser(
     patch.leaseExpiresAt = null
     patch.nextCheckAt = computeNextCheckAt(input.intervalSeconds ?? existing.intervalSeconds, now)
   } else if (intervalChanged) {
+    patch.leaseOwner = null
+    patch.leaseExpiresAt = null
     patch.nextCheckAt = computeNextCheckAt(input.intervalSeconds!, now)
   }
 
