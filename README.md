@@ -4,27 +4,25 @@ Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can man
 
 ## Current state
 
-Foundation plus the core domain schema and pure monitor status transitions:
-
-- Nuxt 4 app, Nitro health check, separate worker entry point
+- Nuxt 4 app with signup, login, logout, and a monitor dashboard
+- Server-side session authentication (HttpOnly cookies; scrypt password hashes)
+- Tenant-scoped monitor CRUD API
 - PostgreSQL schema with ownership, scheduling, incident, and outbox invariants
-- Idempotent `pulse_test` database setup for serial integration tests
-- Framework-independent status state machine with saturating counters
+- Pure monitor status state machine
+- Idempotent `pulse_test` database setup and serial API/HTTP tests
 
 Not implemented yet:
 
-- authentication and sessions
-- monitor CRUD
 - worker scheduling / leasing loop
 - outbound HTTP checks and SSRF-safe fetch
-- webhook delivery
+- incident processing and webhook delivery
 - public status page UI
 
 ## Prerequisites
 
-- Node.js `>=22.18.0` (`.nvmrc` pins `22.23.0`; Docker images use the same patch)
+- Node.js `>=22.18.0` (`.nvmrc` pins `22.23.0`)
 - npm 10+
-- Docker and Docker Compose 2.2+ (for local PostgreSQL and image builds)
+- Docker and Docker Compose 2.2+
 
 ## Environment setup
 
@@ -32,12 +30,12 @@ Not implemented yet:
 cp .env.example .env
 ```
 
-| Variable              | Purpose                                        |
-| --------------------- | ---------------------------------------------- |
-| `DATABASE_URL`        | App/worker PostgreSQL URL (`pulse`)            |
-| `TEST_DATABASE_URL`   | Integration-test DB URL (must be `pulse_test`) |
-| `NODE_ENV`            | `development`, `production`, or `test`         |
-| `NUXT_PUBLIC_APP_URL` | Public base URL of the app                     |
+| Variable              | Purpose                                         |
+| --------------------- | ----------------------------------------------- |
+| `DATABASE_URL`        | App/worker PostgreSQL URL (`pulse`)             |
+| `TEST_DATABASE_URL`   | Integration/HTTP test DB (must be `pulse_test`) |
+| `NODE_ENV`            | `development`, `production`, or `test`          |
+| `NUXT_PUBLIC_APP_URL` | Public origin (trusted Origin for mutations)    |
 
 ## Local run
 
@@ -50,70 +48,35 @@ npm run db:migrate:test
 npm run dev
 ```
 
-Worker connectivity check:
+Open `http://localhost:3000/signup`.
+
+State-changing API calls (including curl) must send a matching `Origin` header, for example:
 
 ```bash
-npm run worker:start
-```
-
-## Database
-
-```bash
-npm run db:test:setup      # create pulse_test if missing (idempotent)
-npm run db:generate        # generate migrations from db/schema.ts
-npm run db:migrate         # apply to DATABASE_URL (pulse)
-npm run db:migrate:test    # apply to TEST_DATABASE_URL (pulse_test)
+curl -i -X POST http://localhost:3000/api/auth/signup \
+  -H 'content-type: application/json' \
+  -H 'origin: http://localhost:3000' \
+  -d '{"email":"you@example.com","password":"password123"}'
 ```
 
 ## Scripts
 
-| Script                     | Purpose                                  |
-| -------------------------- | ---------------------------------------- |
-| `npm run dev`              | Start the Nuxt app                       |
-| `npm run build`            | Build the Nuxt app                       |
-| `npm run typecheck`        | Typecheck Nuxt app and worker            |
-| `npm run lint`             | ESLint                                   |
-| `npm run format`           | Prettier write                           |
-| `npm run format:check`     | Prettier check                           |
-| `npm run test:unit`        | Unit tests (no database)                 |
-| `npm run test:integration` | Serial schema tests against `pulse_test` |
-| `npm run test`             | Unit then integration                    |
-| `npm run db:test:setup`    | Idempotent create of `pulse_test`        |
-| `npm run db:generate`      | Generate Drizzle migrations              |
-| `npm run db:migrate`       | Migrate development database             |
-| `npm run db:migrate:test`  | Migrate `pulse_test`                     |
-| `npm run worker:start`     | One-shot worker DB connectivity check    |
-| `npm run worker:build`     | Compile the worker to `dist-worker/`     |
-
-## Verification
-
-```bash
-npm ci
-docker compose up -d db
-npm run db:test:setup
-npm run db:migrate
-npm run db:migrate:test
-npm run lint
-npm run format:check
-npm run typecheck
-npm run test:unit
-npm run test:integration
-npm run build
-npm run worker:start
-```
-
-Health (`GET /api/health`) when the database is reachable:
-
-```json
-{ "status": "ok", "database": "up" }
-```
-
-When unavailable (HTTP 503):
-
-```json
-{ "status": "unavailable", "database": "down" }
-```
+| Script                     | Purpose                                   |
+| -------------------------- | ----------------------------------------- |
+| `npm run dev`              | Start the Nuxt app                        |
+| `npm run build`            | Build the Nuxt app                        |
+| `npm run typecheck`        | Typecheck Nuxt app and worker             |
+| `npm run lint`             | ESLint                                    |
+| `npm run format:check`     | Prettier check                            |
+| `npm run test:unit`        | Unit tests                                |
+| `npm run test:integration` | Serial DB constraint tests (`pulse_test`) |
+| `npm run test:http`        | Serial Nuxt HTTP API tests (`pulse_test`) |
+| `npm run test`             | Unit + integration + HTTP                 |
+| `npm run db:test:setup`    | Idempotent create of `pulse_test`         |
+| `npm run db:migrate`       | Migrate development database              |
+| `npm run db:migrate:test`  | Migrate `pulse_test`                      |
+| `npm run worker:start`     | One-shot worker DB connectivity check     |
 
 ## Architecture notes
 
-See [DECISIONS.md](./DECISIONS.md) for significant design choices and deliberate non-goals.
+See [DECISIONS.md](./DECISIONS.md).

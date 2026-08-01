@@ -2,9 +2,9 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
 
-  // Phase 1 only needs the ESLint module; auth/UI modules are added
-  // alongside the features that need them.
   modules: ['@nuxt/eslint'],
+
+  css: ['~/assets/css/main.css'],
 
   eslint: {
     config: {
