@@ -50,9 +50,22 @@ const {
   '/api/notification-settings',
 )
 
+type HistoryResult = {
+  checkedAt: string
+  outcome: 'UP' | 'DOWN'
+  responseMs: number | null
+  statusCode: number | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
 const formError = ref('')
 const formPending = ref(false)
 const editingId = ref<string | null>(null)
+const selectedMonitorId = ref<string | null>(null)
+const historyResults = ref<HistoryResult[] | null>(null)
+const historyPending = ref(false)
+const historyError = ref('')
 
 const webhookForm = reactive({
   webhookUrl: settingsData.value?.settings.webhookUrl ?? '',
@@ -212,6 +225,49 @@ async function saveWebhookSettings() {
 function formatInterval(seconds: number): string {
   return intervalOptions.find((option) => option.value === seconds)?.label ?? `${seconds}s`
 }
+
+function formatWhen(value: string | null): string {
+  if (!value) return 'Never'
+  return new Date(value).toLocaleString()
+}
+
+function formatResponse(ms: number | null): string {
+  if (ms === null || ms === undefined) return '—'
+  return `${ms} ms`
+}
+
+const selectedMonitor = computed(
+  () =>
+    monitorsData.value?.monitors.find((monitor) => monitor.id === selectedMonitorId.value) ?? null,
+)
+
+async function selectMonitor(monitor: Monitor) {
+  selectedMonitorId.value = monitor.id
+  historyError.value = ''
+  historyPending.value = true
+  historyResults.value = null
+  try {
+    const data = await $fetch<{ results: HistoryResult[] }>(
+      `/api/monitors/${monitor.id}/history?limit=20`,
+    )
+    historyResults.value = data.results
+  } catch (error) {
+    historyError.value = apiErrorMessage(error)
+    historyResults.value = null
+  } finally {
+    historyPending.value = false
+  }
+}
+
+function resultDetail(result: HistoryResult): string {
+  if (result.outcome === 'UP') {
+    return result.statusCode !== null ? `HTTP ${result.statusCode}` : 'OK'
+  }
+  if (result.statusCode !== null) {
+    return `HTTP ${result.statusCode}`
+  }
+  return result.errorCode ?? result.errorMessage ?? 'Failed'
+}
 </script>
 
 <template>
@@ -311,20 +367,30 @@ function formatInterval(seconds: number): string {
               <tr>
                 <th scope="col">Name</th>
                 <th scope="col">Status</th>
+                <th scope="col">Last checked</th>
+                <th scope="col">Response</th>
                 <th scope="col">Interval</th>
                 <th scope="col">Flags</th>
                 <th scope="col">Actions</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="monitor in monitorsData.monitors" :key="monitor.id">
+              <tr
+                v-for="monitor in monitorsData.monitors"
+                :key="monitor.id"
+                :aria-selected="selectedMonitorId === monitor.id"
+              >
                 <td>
                   <strong>{{ monitor.name }}</strong>
                   <div class="muted">{{ monitor.url }}</div>
                 </td>
                 <td>
-                  <span class="badge">{{ monitor.status }}</span>
+                  <span class="badge" :aria-label="`Status ${monitor.status}`">{{
+                    monitor.status
+                  }}</span>
                 </td>
+                <td>{{ formatWhen(monitor.lastCheckedAt) }}</td>
+                <td>{{ formatResponse(monitor.lastResponseMs) }}</td>
                 <td>{{ formatInterval(monitor.intervalSeconds) }}</td>
                 <td>
                   <div>{{ monitor.enabled ? 'Enabled' : 'Disabled' }}</div>
@@ -332,6 +398,9 @@ function formatInterval(seconds: number): string {
                 </td>
                 <td>
                   <div class="row">
+                    <button type="button" class="secondary" @click="selectMonitor(monitor)">
+                      History
+                    </button>
                     <button type="button" class="secondary" @click="startEdit(monitor)">
                       Edit
                     </button>
@@ -346,6 +415,53 @@ function formatInterval(seconds: number): string {
                     </button>
                   </div>
                 </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section v-if="selectedMonitorId" class="panel stack" aria-labelledby="monitor-history-title">
+        <h2 id="monitor-history-title">
+          Recent checks
+          <span v-if="selectedMonitor"> — {{ selectedMonitor.name }}</span>
+        </h2>
+
+        <p v-if="selectedMonitor?.status === 'DOWN'" class="error" role="status">
+          This monitor is currently DOWN.
+        </p>
+        <p v-if="selectedMonitor" class="muted">
+          Status {{ selectedMonitor.status }}. Last checked
+          {{ formatWhen(selectedMonitor.lastCheckedAt) }}. Latest response
+          {{ formatResponse(selectedMonitor.lastResponseMs) }}.
+        </p>
+
+        <p v-if="historyPending" class="muted" role="status">Loading history…</p>
+        <p v-else-if="historyError" class="error" role="alert">{{ historyError }}</p>
+        <p v-else-if="historyResults && historyResults.length === 0" class="muted">
+          No checks yet for this monitor.
+        </p>
+
+        <div v-else-if="historyResults?.length" class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Checked at</th>
+                <th scope="col">Outcome</th>
+                <th scope="col">Response</th>
+                <th scope="col">Detail</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(result, index) in historyResults" :key="`${result.checkedAt}-${index}`">
+                <td>{{ formatWhen(result.checkedAt) }}</td>
+                <td>
+                  <span class="badge" :aria-label="`Outcome ${result.outcome}`">{{
+                    result.outcome
+                  }}</span>
+                </td>
+                <td>{{ formatResponse(result.responseMs) }}</td>
+                <td>{{ resultDetail(result) }}</td>
               </tr>
             </tbody>
           </table>

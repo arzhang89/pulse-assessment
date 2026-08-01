@@ -1,6 +1,6 @@
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, desc, eq } from 'drizzle-orm'
 import { getDb } from '../../db/client'
-import { monitors } from '../../db/schema'
+import { checkResults, monitors } from '../../db/schema'
 import { computeNextCheckAt } from '../../shared/monitor-schedule'
 import type { CreateMonitorInput, UpdateMonitorInput } from '../../shared/validation/monitors'
 import { AppError } from '../utils/errors'
@@ -194,4 +194,46 @@ export async function deleteMonitorForUser(userId: string, monitorId: string): P
   if (deleted.length === 0) {
     throw new AppError(404, 'NOT_FOUND', 'Monitor not found')
   }
+}
+
+export type PublicCheckResult = {
+  checkedAt: Date
+  outcome: 'UP' | 'DOWN'
+  responseMs: number | null
+  statusCode: number | null
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+/**
+ * Recent check history for a monitor owned by the authenticated user.
+ * Ownership is enforced in the same query as the monitor id filter.
+ */
+export async function listMonitorHistoryForUser(
+  userId: string,
+  monitorId: string,
+  limit: number,
+): Promise<PublicCheckResult[]> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      checkedAt: checkResults.checkedAt,
+      outcome: checkResults.outcome,
+      responseMs: checkResults.responseMs,
+      statusCode: checkResults.statusCode,
+      errorCode: checkResults.errorCode,
+      errorMessage: checkResults.errorMessage,
+    })
+    .from(checkResults)
+    .innerJoin(monitors, eq(checkResults.monitorId, monitors.id))
+    .where(and(eq(monitors.id, monitorId), eq(monitors.userId, userId)))
+    .orderBy(desc(checkResults.checkedAt), desc(checkResults.id))
+    .limit(limit)
+
+  // Distinguish empty history for an owned monitor from a missing/other-tenant id.
+  if (rows.length === 0) {
+    await getMonitorForUser(userId, monitorId)
+  }
+
+  return rows
 }

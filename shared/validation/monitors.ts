@@ -54,5 +54,10 @@ export const updateMonitorSchema = z
 
 export const monitorIdSchema = z.string().uuid('Monitor id must be a valid UUID')
 
+export const monitorHistoryQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+})
+
 export type CreateMonitorInput = z.infer<typeof createMonitorSchema>
 export type UpdateMonitorInput = z.infer<typeof updateMonitorSchema>
+export type MonitorHistoryQuery = z.infer<typeof monitorHistoryQuerySchema>

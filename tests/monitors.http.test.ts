@@ -244,6 +244,93 @@ describe('monitors HTTP API', () => {
     expect(history).toHaveLength(1)
   })
 
+  it('returns owner-scoped history newest first with bounded limit', async () => {
+    const tokenA = await signup('hist-a@example.com')
+    const tokenB = await signup('hist-b@example.com')
+    const created = await fetch('/api/monitors', {
+      method: 'POST',
+      headers: { ...jsonHeaders(), cookie: cookieHeader(tokenA) },
+      body: JSON.stringify({
+        name: 'Hist',
+        url: 'https://example.com',
+        intervalSeconds: 60,
+      }),
+    })
+    const createdBody = (await readJson(created)) as { monitor: { id: string } }
+    const db = getTestDb()
+
+    await db.insert(checkResults).values([
+      {
+        monitorId: createdBody.monitor.id,
+        scheduledFor: new Date('2026-01-01T00:00:00Z'),
+        checkedAt: new Date('2026-01-01T00:00:01Z'),
+        outcome: 'UP',
+        responseMs: 10,
+        statusCode: 200,
+      },
+      {
+        monitorId: createdBody.monitor.id,
+        scheduledFor: new Date('2026-01-01T00:01:00Z'),
+        checkedAt: new Date('2026-01-01T00:01:02Z'),
+        outcome: 'DOWN',
+        responseMs: 20,
+        statusCode: 500,
+        errorCode: 'HTTP_STATUS',
+        errorMessage: 'HTTP 500',
+      },
+    ])
+
+    const empty = await fetch(`/api/monitors/${createdBody.monitor.id}/history`, {
+      headers: { cookie: cookieHeader(tokenA) },
+    })
+    // With results present — also cover empty via other monitor
+    expect(empty.status).toBe(200)
+    const body = (await readJson(empty)) as {
+      results: Array<{ checkedAt: string; outcome: string; statusCode: number | null }>
+    }
+    expect(body.results).toHaveLength(2)
+    expect(body.results[0]!.outcome).toBe('DOWN')
+    expect(body.results[0]!.statusCode).toBe(500)
+    expect(body.results[1]!.outcome).toBe('UP')
+
+    const limited = await fetch(`/api/monitors/${createdBody.monitor.id}/history?limit=1`, {
+      headers: { cookie: cookieHeader(tokenA) },
+    })
+    const limitedBody = (await readJson(limited)) as { results: unknown[] }
+    expect(limitedBody.results).toHaveLength(1)
+
+    const badLimit = await fetch(`/api/monitors/${createdBody.monitor.id}/history?limit=0`, {
+      headers: { cookie: cookieHeader(tokenA) },
+    })
+    expect(badLimit.status).toBe(400)
+
+    const other = await fetch(`/api/monitors/${createdBody.monitor.id}/history`, {
+      headers: { cookie: cookieHeader(tokenB) },
+    })
+    expect(other.status).toBe(404)
+
+    const missing = await fetch(`/api/monitors/${randomUUID()}/history`, {
+      headers: { cookie: cookieHeader(tokenA) },
+    })
+    expect(missing.status).toBe(404)
+
+    const fresh = await fetch('/api/monitors', {
+      method: 'POST',
+      headers: { ...jsonHeaders(), cookie: cookieHeader(tokenA) },
+      body: JSON.stringify({
+        name: 'Empty',
+        url: 'https://example.com/empty',
+        intervalSeconds: 60,
+      }),
+    })
+    const freshBody = (await readJson(fresh)) as { monitor: { id: string } }
+    const noChecks = await fetch(`/api/monitors/${freshBody.monitor.id}/history`, {
+      headers: { cookie: cookieHeader(tokenA) },
+    })
+    expect(noChecks.status).toBe(200)
+    await expect(readJson(noChecks)).resolves.toEqual({ results: [] })
+  })
+
   it('cascades delete through incidents and pending outbox rows', async () => {
     const token = await signup('cascade@example.com')
     const created = await fetch('/api/monitors', {
