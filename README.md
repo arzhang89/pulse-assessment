@@ -13,11 +13,11 @@ Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can man
 - SSRF-safe outbound HTTP/HTTPS checks (IP policy + pinned connect)
 - Atomic check persistence with incident/outbox lifecycle
 - Authenticated webhook notification settings (one destination per user)
+- At-least-once webhook delivery from the notification outbox
 - Idempotent `pulse_test` database setup and serial API/HTTP tests
 
 Not implemented yet:
 
-- webhook delivery / retries from the outbox
 - check history UI
 - public status page UI
 - charts / retention tooling
@@ -34,17 +34,19 @@ Not implemented yet:
 cp .env.example .env
 ```
 
-| Variable                   | Purpose                                         |
-| -------------------------- | ----------------------------------------------- |
-| `DATABASE_URL`             | App/worker PostgreSQL URL (`pulse`)             |
-| `TEST_DATABASE_URL`        | Integration/HTTP test DB (must be `pulse_test`) |
-| `NODE_ENV`                 | `development`, `production`, or `test`          |
-| `NUXT_PUBLIC_APP_URL`      | Public origin (trusted Origin for mutations)    |
-| `WORKER_CONCURRENCY`       | Max in-flight checks (default `20`)             |
-| `WORKER_POLL_INTERVAL_MS`  | Claim loop sleep (default `1000`)               |
-| `WORKER_LEASE_SECONDS`     | Lease TTL; must exceed 35s (default `60`)       |
-| `WORKER_SHUTDOWN_GRACE_MS` | In-flight grace before abort (default `60000`)  |
-| `WORKER_ID`                | Optional stable worker identity                 |
+| Variable                          | Purpose                                           |
+| --------------------------------- | ------------------------------------------------- |
+| `DATABASE_URL`                    | App/worker PostgreSQL URL (`pulse`)               |
+| `TEST_DATABASE_URL`               | Integration/HTTP test DB (must be `pulse_test`)   |
+| `NODE_ENV`                        | `development`, `production`, or `test`            |
+| `NUXT_PUBLIC_APP_URL`             | Public origin (trusted Origin for mutations)      |
+| `WORKER_CONCURRENCY`              | Max in-flight checks (default `20`)               |
+| `WORKER_NOTIFICATION_CONCURRENCY` | Max in-flight webhook deliveries (default `10`)   |
+| `WORKER_POLL_INTERVAL_MS`         | Claim loop sleep (default `1000`)                 |
+| `WORKER_LEASE_SECONDS`            | Lease TTL; must exceed work+margin (default `60`) |
+| `WORKER_DELIVERY_TIMEOUT_MS`      | Webhook POST timeout (default `10000`)            |
+| `WORKER_SHUTDOWN_GRACE_MS`        | In-flight grace before abort (default `60000`)    |
+| `WORKER_ID`                       | Optional stable worker identity                   |
 
 ## Local run
 

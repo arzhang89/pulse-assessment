@@ -51,6 +51,8 @@ function testWorkerConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     databaseUrl: process.env.TEST_DATABASE_URL!,
     nodeEnv: 'test',
     concurrency: 2,
+    notificationConcurrency: 2,
+    deliveryTimeoutMs: 10_000,
     pollIntervalMs: 10,
     leaseSeconds: 60,
     shutdownGraceMs: 200,
@@ -60,6 +62,8 @@ function testWorkerConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     ...overrides,
   }
 }
+
+const noopOutbox = async () => undefined
 
 describe('claimDueMonitors', () => {
   beforeAll(async () => {
@@ -295,6 +299,7 @@ describe('worker runtime once mode', () => {
       processClaimed: async (claimed) => {
         processed.push(claimed.id)
       },
+      processOutbox: noopOutbox,
       logger: {
         info: () => undefined,
         warn: () => undefined,
@@ -330,6 +335,7 @@ describe('worker runtime once mode', () => {
       processClaimed: async () => {
         await gate
       },
+      processOutbox: noopOutbox,
       logger: {
         info: () => undefined,
         warn: () => undefined,

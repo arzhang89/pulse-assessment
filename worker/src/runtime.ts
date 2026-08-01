@@ -3,22 +3,27 @@ import type { Pool } from 'pg'
 import { claimCapacity, claimDueMonitors, type ClaimedMonitor } from './claim.js'
 import { databaseErrorBackoffMs } from './backoff.js'
 import type { WorkerConfig } from './config.js'
+import {
+  claimPendingOutbox,
+  notificationWorkerId,
+  type ClaimedOutboxEvent,
+} from './outbox-claim.js'
 
 export type ProcessClaimedMonitor = (claimed: ClaimedMonitor, signal: AbortSignal) => Promise<void>
+
+export type ProcessClaimedOutbox = (
+  claimed: ClaimedOutboxEvent,
+  signal: AbortSignal,
+) => Promise<void>
 
 export type WorkerRuntimeOptions = {
   pool: Pool
   config: WorkerConfig
   workerId: string
   processClaimed: ProcessClaimedMonitor
-  /**
-   * When true, claim and process at most one batch then exit (after in-flight
-   * work settles). Used by worker:once and tests.
-   */
+  processOutbox: ProcessClaimedOutbox
   once?: boolean
-  /** Injectable clock for tests. */
   sleep?: (ms: number) => Promise<void>
-  /** Called when the runtime has stopped claiming and finished/aborted work. */
   onStopped?: () => void
   logger?: {
     info: (msg: string, meta?: Record<string, unknown>) => void
@@ -28,9 +33,7 @@ export type WorkerRuntimeOptions = {
 }
 
 export type WorkerRuntime = {
-  /** Resolves when the loop has fully stopped. */
   done: Promise<void>
-  /** Request graceful shutdown (stop claiming; wait / abort in-flight). */
   shutdown: () => void
 }
 
@@ -54,11 +57,14 @@ function defaultLogger() {
   }
 }
 
+type LoopShared = {
+  claiming: boolean
+  shuttingDown: boolean
+}
+
 /**
- * Shared continuous / once worker loop.
- *
- * Shutdown: stop claiming → wait for in-flight checks → on grace expiry abort
- * remaining AbortSignals. Leases are not forcibly cleared; they expire naturally.
+ * Two independent loops (monitors + notifications) in one process.
+ * Shared shutdown/grace; separate p-limit pools and DB-error backoff.
  */
 export function startWorkerRuntime(options: WorkerRuntimeOptions): WorkerRuntime {
   const {
@@ -66,30 +72,38 @@ export function startWorkerRuntime(options: WorkerRuntimeOptions): WorkerRuntime
     config,
     workerId,
     processClaimed,
+    processOutbox,
     once = false,
     sleep = defaultSleep,
     onStopped,
     logger = defaultLogger(),
   } = options
 
-  const limit = pLimit(config.concurrency)
-  let claiming = true
-  let shuttingDown = false
-  let dbErrorAttempt = 0
+  const notifyId = notificationWorkerId(workerId)
+  const monitorLimit = pLimit(config.concurrency)
+  const notifyLimit = pLimit(config.notificationConcurrency)
   const inFlightControllers = new Set<AbortController>()
+
+  const shared: LoopShared = { claiming: true, shuttingDown: false }
 
   let resolveDone!: () => void
   const done = new Promise<void>((resolve) => {
     resolveDone = resolve
   })
 
+  const poolsBusy = () =>
+    monitorLimit.activeCount > 0 ||
+    monitorLimit.pendingCount > 0 ||
+    notifyLimit.activeCount > 0 ||
+    notifyLimit.pendingCount > 0
+
   const enforceGrace = async () => {
     const deadline = Date.now() + config.shutdownGraceMs
-    while (Date.now() < deadline && (limit.activeCount > 0 || limit.pendingCount > 0)) {
+    while (Date.now() < deadline && poolsBusy()) {
       await sleep(50)
     }
 
-    if (limit.activeCount > 0 || limit.pendingCount > 0 || inFlightControllers.size > 0) {
+    if (poolsBusy() || inFlightControllers.size > 0) {
       logger.warn('worker_shutdown_grace_expired', {
         workerId,
         aborting: inFlightControllers.size,
@@ -101,97 +115,170 @@ export function startWorkerRuntime(options: WorkerRuntimeOptions): WorkerRuntime
   }
 
   const shutdown = () => {
-    if (shuttingDown) {
+    if (shared.shuttingDown) {
       return
     }
-    shuttingDown = true
-    claiming = false
+    shared.shuttingDown = true
+    shared.claiming = false
     logger.info('worker_shutdown_requested', { workerId })
     void enforceGrace()
   }
 
-  const run = async () => {
+  const runMonitorLoop = () =>
+    runClaimLoop({
+      name: 'monitor',
+      shared,
+      once,
+      sleep,
+      pollIntervalMs: config.pollIntervalMs,
+      limit: monitorLimit,
+      claim: async (capacity) =>
+        claimDueMonitors({
+          pool,
+          workerId,
+          leaseSeconds: config.leaseSeconds,
+          limit: capacity,
+        }),
+      concurrency: config.concurrency,
+      processItem: processClaimed,
+      inFlightControllers,
+      logger,
+      workerId,
+      itemKey: (m) => m.id,
+    })
+
+  const runNotifyLoop = () =>
+    runClaimLoop({
+      name: 'notification',
+      shared,
+      once,
+      sleep,
+      pollIntervalMs: config.pollIntervalMs,
+      limit: notifyLimit,
+      claim: async (capacity) =>
+        claimPendingOutbox({
+          pool,
+          workerId: notifyId,
+          leaseSeconds: config.leaseSeconds,
+          limit: capacity,
+        }),
+      concurrency: config.notificationConcurrency,
+      processItem: processOutbox,
+      inFlightControllers,
+      logger,
+      workerId: notifyId,
+      itemKey: (e) => e.id,
+    })
+
+  void (async () => {
     try {
-      while (true) {
-        if (claiming) {
-          const capacity = claimCapacity(config.concurrency, limit.activeCount, limit.pendingCount)
-
-          if (capacity > 0) {
-            try {
-              const claimed = await claimDueMonitors({
-                pool,
-                workerId,
-                leaseSeconds: config.leaseSeconds,
-                limit: capacity,
-              })
-              dbErrorAttempt = 0
-
-              for (const monitor of claimed) {
-                const controller = new AbortController()
-                inFlightControllers.add(controller)
-
-                void limit(async () => {
-                  try {
-                    await processClaimed(monitor, controller.signal)
-                  } catch (error) {
-                    logger.error('worker_process_failed', {
-                      workerId,
-                      monitorId: monitor.id,
-                      error: error instanceof Error ? error.message : 'unknown',
-                    })
-                  } finally {
-                    inFlightControllers.delete(controller)
-                  }
-                })
-              }
-
-              if (once) {
-                claiming = false
-              }
-            } catch (error) {
-              const delay = databaseErrorBackoffMs(dbErrorAttempt)
-              dbErrorAttempt += 1
-              logger.error('worker_claim_failed', {
-                workerId,
-                attempt: dbErrorAttempt,
-                backoffMs: delay,
-                error: error instanceof Error ? error.message : 'unknown',
-              })
-              if (once) {
-                claiming = false
-              } else if (claiming) {
-                await sleep(delay)
-                continue
-              }
-            }
-          } else if (once) {
-            // No free slots and once mode already claimed its batch elsewhere —
-            // wait for in-flight work below.
-            claiming = false
-          }
-        }
-
-        const busy = limit.activeCount > 0 || limit.pendingCount > 0
-
-        if (!claiming && !busy) {
-          break
-        }
-
-        if (claiming && !once) {
-          await sleep(config.pollIntervalMs)
-          continue
-        }
-
-        // Waiting for in-flight work (once mode or post-shutdown).
-        await sleep(50)
-      }
+      await Promise.all([runMonitorLoop(), runNotifyLoop()])
     } finally {
       onStopped?.()
       resolveDone()
     }
-  }
-
-  void run()
+  })()
 
   return { done, shutdown }
+}
+
+async function runClaimLoop<T>(options: {
+  name: string
+  shared: LoopShared
+  once: boolean
+  sleep: (ms: number) => Promise<void>
+  pollIntervalMs: number
+  limit: ReturnType<typeof pLimit>
+  concurrency: number
+  claim: (capacity: number) => Promise<T[]>
+  processItem: (item: T, signal: AbortSignal) => Promise<void>
+  inFlightControllers: Set<AbortController>
+  logger: {
+    info: (msg: string, meta?: Record<string, unknown>) => void
+    warn: (msg: string, meta?: Record<string, unknown>) => void
+    error: (msg: string, meta?: Record<string, unknown>) => void
+  }
+  workerId: string
+  itemKey: (item: T) => string
+}): Promise<void> {
+  let loopClaiming = true
+  let dbErrorAttempt = 0
+
+  while (true) {
+    const mayClaim = options.shared.claiming && loopClaiming
+
+    if (mayClaim) {
+      const capacity = claimCapacity(
+        options.concurrency,
+        options.limit.activeCount,
+        options.limit.pendingCount,
+      )
+
+      if (capacity > 0) {
+        try {
+          const claimed = await options.claim(capacity)
+          dbErrorAttempt = 0
+
+          for (const item of claimed) {
+            const controller = new AbortController()
+            options.inFlightControllers.add(controller)
+
+            void options.limit(async () => {
+              try {
+                await options.processItem(item, controller.signal)
+              } catch (error) {
+                options.logger.error('worker_process_failed', {
+                  loop: options.name,
+                  workerId: options.workerId,
+                  itemId: options.itemKey(item),
+                  error: error instanceof Error ? error.message : 'unknown',
+                })
+              } finally {
+                options.inFlightControllers.delete(controller)
+              }
+            })
+          }
+
+          if (options.once) {
+            loopClaiming = false
+          }
+        } catch (error) {
+          const delay = databaseErrorBackoffMs(dbErrorAttempt)
+          dbErrorAttempt += 1
+          options.logger.error('worker_claim_failed', {
+            loop: options.name,
+            workerId: options.workerId,
+            attempt: dbErrorAttempt,
+            backoffMs: delay,
+            error: error instanceof Error ? error.message : 'unknown',
+          })
+          if (options.once) {
+            loopClaiming = false
+          } else if (options.shared.claiming && loopClaiming) {
+            await options.sleep(delay)
+            continue
+          }
+        }
+      } else if (options.once) {
+        loopClaiming = false
+      }
+    }
+
+    const busy = options.limit.activeCount > 0 || options.limit.pendingCount > 0
+
+    if (!options.shared.claiming) {
+      loopClaiming = false
+    }
+
+    if (!loopClaiming && !busy) {
+      break
+    }
+
+    if (loopClaiming && options.shared.claiming && !options.once) {
+      await options.sleep(options.pollIntervalMs)
+      continue
+    }
+
+    await options.sleep(50)
+  }
 }

@@ -20,6 +20,8 @@ describe('getWorkerConfig', () => {
     const config = getWorkerConfig(process.env)
 
     expect(config.concurrency).toBe(20)
+    expect(config.notificationConcurrency).toBe(10)
+    expect(config.deliveryTimeoutMs).toBe(10_000)
     expect(config.pollIntervalMs).toBe(1_000)
     expect(config.leaseSeconds).toBe(60)
     expect(config.shutdownGraceMs).toBe(60_000)

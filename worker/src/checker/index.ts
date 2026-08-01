@@ -4,6 +4,13 @@ export {
   type PerformHttpCheckInput,
 } from './http-check.js'
 export {
+  safeHttpRequest,
+  type SafeRequestDependencies,
+  type SafeRequestInput,
+  type SafeRequestResult,
+  type DnsLookupFn,
+} from './safe-request.js'
+export {
   classifyIpAddress,
   dedupeAddresses,
   isForbiddenIpAddress,

@@ -1,6 +1,8 @@
 import { getPool } from '../../db/client.js'
 import { getWorkerConfig } from './config.js'
 import { createProcessClaimed } from './process-claimed.js'
+import { createProcessOutbox } from './process-outbox.js'
+import { notificationWorkerId } from './outbox-claim.js'
 import { startWorkerRuntime } from './runtime.js'
 import { createWorkerId } from './worker-id.js'
 
@@ -32,15 +34,19 @@ async function main(): Promise<void> {
   const once = parseOnceFlag(process.argv)
   const config = getWorkerConfig()
   const workerId = createWorkerId(config.workerId)
+  const notifyId = notificationWorkerId(workerId)
   const pool = getPool()
   const logger = structuredLogger()
 
   logger.info('worker_starting', {
     workerId,
+    notificationWorkerId: notifyId,
     once,
     concurrency: config.concurrency,
+    notificationConcurrency: config.notificationConcurrency,
     pollIntervalMs: config.pollIntervalMs,
     leaseSeconds: config.leaseSeconds,
+    deliveryTimeoutMs: config.deliveryTimeoutMs,
     shutdownGraceMs: config.shutdownGraceMs,
   })
 
@@ -50,11 +56,19 @@ async function main(): Promise<void> {
     logger,
   })
 
+  const processOutbox = createProcessOutbox({
+    pool,
+    notificationWorkerId: notifyId,
+    deliveryTimeoutMs: config.deliveryTimeoutMs,
+    logger,
+  })
+
   const runtime = startWorkerRuntime({
     pool,
     config,
     workerId,
     processClaimed,
+    processOutbox,
     once,
     logger,
   })

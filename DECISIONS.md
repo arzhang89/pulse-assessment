@@ -104,8 +104,16 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Clearing:** `enabled=false` with `webhookUrl=null` deletes the settings row. `enabled=false` with a valid URL keeps the URL for later re-enable. `enabled=true` requires a non-null URL. Create-time URL validation is scheme/credentials only; delivery SSRF enforcement belongs with the outbound transport.
 
+## Webhook delivery (at-least-once)
+
+**Decision:** A second in-process worker loop claims `notification_outbox` rows (`FOR UPDATE SKIP LOCKED`), POSTs the snapshotted JSON payload via the shared SSRF-safe transport, then finalizes under a lease-owner + PENDING guard.
+
+**Semantics:** Delivery is at-least-once. Receivers should deduplicate on `payload.eventId` (equals outbox PK). Payload is never mutated across retries. No webhook signing in this assessment.
+
+**Classification:** Success = HTTP 200–299. Retryable = DNS/connect/TLS/timeout, 408/425/429, 5xx. Terminal = 3xx (no redirects), other 4xx, forbidden/invalid destination. Max attempts = 8; delays 30s → 2m → 10m → 1h (capped).
+
 ## Deliberately limited scope so far
 
-**Decision:** Webhook delivery/retries from the outbox and the public status page remain later slices.
+**Decision:** Public status page UI and check-history dashboard remain later slices. Webhook signing is intentionally omitted.
 
-**Why:** Claiming, checking, and durable incident/outbox enqueue are enough to prove the monitoring path; delivery can be added without changing the persistence contract.
+**Why:** Settings + durable outbox delivery complete the notification path without expanding auth or multi-destination complexity.

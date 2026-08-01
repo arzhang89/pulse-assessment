@@ -20,6 +20,8 @@ function testConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
     databaseUrl: process.env.TEST_DATABASE_URL!,
     nodeEnv: 'test',
     concurrency: 2,
+    notificationConcurrency: 2,
+    deliveryTimeoutMs: 10_000,
     pollIntervalMs: 20,
     leaseSeconds: 60,
     shutdownGraceMs: 1_000,
@@ -107,6 +109,7 @@ describe('worker claim-check-persist once mode', () => {
       config: testConfig(),
       workerId: 'runtime-worker',
       processClaimed,
+      processOutbox: async () => undefined,
       once: true,
       logger: {
         info: () => undefined,

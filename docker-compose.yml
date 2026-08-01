@@ -30,9 +30,11 @@ services:
       NODE_ENV: production
       NUXT_PUBLIC_APP_URL: http://localhost:3000
       WORKER_CONCURRENCY: '20'
+      WORKER_NOTIFICATION_CONCURRENCY: '10'
       WORKER_POLL_INTERVAL_MS: '1000'
       WORKER_LEASE_SECONDS: '60'
       WORKER_SHUTDOWN_GRACE_MS: '60000'
+      WORKER_DELIVERY_TIMEOUT_MS: '10000'
     depends_on:
       db:
         condition: service_healthy

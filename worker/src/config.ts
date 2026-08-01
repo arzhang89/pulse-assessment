@@ -1,17 +1,19 @@
 import { z } from 'zod'
 import { getEnv } from '../../shared/env.js'
 
-/** Matches monitors.last_response_ms / check timeout budget (30s). */
+/** Matches monitors timeout upper bound (30s). */
 export const MAX_CHECK_TIMEOUT_MS = 30_000
 
-/** Extra time reserved after the check for DB persistence before lease expiry. */
+/** Extra time reserved after work for DB persistence before lease expiry. */
 export const PERSISTENCE_MARGIN_MS = 5_000
 
 const workerEnvSchema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(20),
+  WORKER_NOTIFICATION_CONCURRENCY: z.coerce.number().int().positive().default(10),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1_000),
   WORKER_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
   WORKER_SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(60_000),
+  WORKER_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
   WORKER_ID: z.string().min(1).optional(),
 })
 
@@ -19,18 +21,19 @@ export type WorkerConfig = {
   databaseUrl: string
   nodeEnv: 'development' | 'production' | 'test'
   concurrency: number
+  notificationConcurrency: number
   pollIntervalMs: number
   leaseSeconds: number
   shutdownGraceMs: number
+  deliveryTimeoutMs: number
   workerId: string | undefined
   maxCheckTimeoutMs: number
   persistenceMarginMs: number
 }
 
 /**
- * Loads worker configuration. Validates that the lease duration exceeds the
- * maximum check timeout plus a persistence margin so in-flight work is not
- * reclaimed mid-check under normal operation.
+ * Loads worker configuration. Lease must exceed max(check timeout, delivery
+ * timeout) plus persistence margin.
  */
 export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const base = getEnv()
@@ -44,14 +47,21 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
   }
 
   const data = parsed.data
-  const minLeaseMs = MAX_CHECK_TIMEOUT_MS + PERSISTENCE_MARGIN_MS
+  const maxWorkMs = Math.max(MAX_CHECK_TIMEOUT_MS, data.WORKER_DELIVERY_TIMEOUT_MS)
+  const minLeaseMs = maxWorkMs + PERSISTENCE_MARGIN_MS
   const leaseMs = data.WORKER_LEASE_SECONDS * 1_000
 
   if (leaseMs <= minLeaseMs) {
     throw new Error(
       `WORKER_LEASE_SECONDS (${data.WORKER_LEASE_SECONDS}s) must exceed ` +
-        `MAX_CHECK_TIMEOUT_MS + PERSISTENCE_MARGIN_MS ` +
-        `(${MAX_CHECK_TIMEOUT_MS}ms + ${PERSISTENCE_MARGIN_MS}ms = ${minLeaseMs}ms)`,
+        `max(check timeout, delivery timeout) + PERSISTENCE_MARGIN_MS ` +
+        `(${maxWorkMs}ms + ${PERSISTENCE_MARGIN_MS}ms = ${minLeaseMs}ms)`,
+    )
+  }
+
+  if (data.WORKER_LEASE_SECONDS * 1000 <= data.WORKER_DELIVERY_TIMEOUT_MS + PERSISTENCE_MARGIN_MS) {
+    throw new Error(
+      `WORKER_LEASE_SECONDS must exceed WORKER_DELIVERY_TIMEOUT_MS + persistence margin`,
     )
   }
 
@@ -59,9 +69,11 @@ export function getWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCon
     databaseUrl: base.DATABASE_URL,
     nodeEnv: base.NODE_ENV,
     concurrency: data.WORKER_CONCURRENCY,
+    notificationConcurrency: data.WORKER_NOTIFICATION_CONCURRENCY,
     pollIntervalMs: data.WORKER_POLL_INTERVAL_MS,
     leaseSeconds: data.WORKER_LEASE_SECONDS,
     shutdownGraceMs: data.WORKER_SHUTDOWN_GRACE_MS,
+    deliveryTimeoutMs: data.WORKER_DELIVERY_TIMEOUT_MS,
     workerId: data.WORKER_ID,
     maxCheckTimeoutMs: MAX_CHECK_TIMEOUT_MS,
     persistenceMarginMs: PERSISTENCE_MARGIN_MS,
