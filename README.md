@@ -12,11 +12,13 @@ Pulse is a small multi-tenant uptime-monitoring service. Signed-in users can man
 - Durable worker claiming (`FOR UPDATE SKIP LOCKED` leases)
 - SSRF-safe outbound HTTP/HTTPS checks (IP policy + pinned connect)
 - Atomic check persistence with incident/outbox lifecycle
+- Authenticated webhook notification settings (one destination per user)
 - Idempotent `pulse_test` database setup and serial API/HTTP tests
 
 Not implemented yet:
 
 - webhook delivery / retries from the outbox
+- check history UI
 - public status page UI
 - charts / retention tooling
 

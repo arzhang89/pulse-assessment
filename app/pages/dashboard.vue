@@ -42,9 +42,25 @@ const {
   pending: monitorsPending,
 } = await useFetch<{ monitors: Monitor[] }>('/api/monitors')
 
+const {
+  data: settingsData,
+  refresh: refreshSettings,
+  pending: settingsPending,
+} = await useFetch<{ settings: { webhookUrl: string | null; enabled: boolean } }>(
+  '/api/notification-settings',
+)
+
 const formError = ref('')
 const formPending = ref(false)
 const editingId = ref<string | null>(null)
+
+const webhookForm = reactive({
+  webhookUrl: settingsData.value?.settings.webhookUrl ?? '',
+  enabled: settingsData.value?.settings.enabled ?? false,
+})
+const webhookError = ref('')
+const webhookPending = ref(false)
+const webhookMessage = ref('')
 
 const form = reactive({
   name: '',
@@ -164,6 +180,35 @@ async function logout() {
   }
 }
 
+async function saveWebhookSettings() {
+  webhookError.value = ''
+  webhookMessage.value = ''
+  webhookPending.value = true
+  try {
+    const trimmed = webhookForm.webhookUrl.trim()
+    const body = {
+      webhookUrl: trimmed.length > 0 ? trimmed : null,
+      enabled: webhookForm.enabled,
+    }
+    const result = await $fetch<{ settings: { webhookUrl: string | null; enabled: boolean } }>(
+      '/api/notification-settings',
+      { method: 'PUT', body },
+    )
+    webhookForm.webhookUrl = result.settings.webhookUrl ?? ''
+    webhookForm.enabled = result.settings.enabled
+    webhookMessage.value = result.settings.enabled
+      ? 'Webhook notifications enabled.'
+      : result.settings.webhookUrl
+        ? 'Webhook saved and disabled. Pending events already queued may still deliver.'
+        : 'Webhook settings cleared.'
+    await refreshSettings()
+  } catch (error) {
+    webhookError.value = apiErrorMessage(error)
+  } finally {
+    webhookPending.value = false
+  }
+}
+
 function formatInterval(seconds: number): string {
   return intervalOptions.find((option) => option.value === seconds)?.label ?? `${seconds}s`
 }
@@ -180,6 +225,35 @@ function formatInterval(seconds: number): string {
     </header>
 
     <div class="stack">
+      <section class="panel stack" aria-labelledby="webhook-settings-title">
+        <h2 id="webhook-settings-title">Webhook notifications</h2>
+        <p class="muted">
+          One destination per account. Disabling stops new events; already-queued notifications keep
+          their saved destination and may still deliver.
+        </p>
+        <form class="stack" @submit.prevent="saveWebhookSettings">
+          <label>
+            Webhook URL
+            <input
+              v-model="webhookForm.webhookUrl"
+              name="webhookUrl"
+              type="url"
+              placeholder="https://hooks.example.com/pulse"
+              :disabled="settingsPending"
+            />
+          </label>
+          <label class="row">
+            <input v-model="webhookForm.enabled" type="checkbox" name="webhookEnabled" />
+            Enabled
+          </label>
+          <p v-if="webhookError" class="error" role="alert">{{ webhookError }}</p>
+          <p v-if="webhookMessage" class="muted" role="status">{{ webhookMessage }}</p>
+          <button type="submit" :disabled="webhookPending || settingsPending">
+            {{ webhookPending ? 'Saving…' : 'Save webhook settings' }}
+          </button>
+        </form>
+      </section>
+
       <section class="panel stack" aria-labelledby="monitor-form-title">
         <h2 id="monitor-form-title">
           {{ editingId ? 'Edit monitor' : 'Add monitor' }}

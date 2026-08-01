@@ -98,6 +98,12 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Outbox payload:** versioned JSON without the monitor URL. `eventId` is generated before insert and equals the outbox primary key. `destination_url` snapshots the webhook URL when settings are enabled.
 
+## Webhook notification settings
+
+**Decision:** One `notification_settings` row per user, managed via `GET`/`PUT /api/notification-settings`. Settings changes affect **future** outbox creation only. Existing pending outbox rows keep their snapshotted `destination_url` and remain deliverable.
+
+**Clearing:** `enabled=false` with `webhookUrl=null` deletes the settings row. `enabled=false` with a valid URL keeps the URL for later re-enable. `enabled=true` requires a non-null URL. Create-time URL validation is scheme/credentials only; delivery SSRF enforcement belongs with the outbound transport.
+
 ## Deliberately limited scope so far
 
 **Decision:** Webhook delivery/retries from the outbox and the public status page remain later slices.
