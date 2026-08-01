@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "ipaddr.js": "2.2.0",
     "nuxt": "4.4.8",
     "p-limit": "6.2.0",
     "pg": "8.22.0",
