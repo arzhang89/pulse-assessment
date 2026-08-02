@@ -14,7 +14,11 @@ const workerEnvSchema = z.object({
   WORKER_LEASE_SECONDS: z.coerce.number().int().positive().default(60),
   WORKER_SHUTDOWN_GRACE_MS: z.coerce.number().int().positive().default(60_000),
   WORKER_DELIVERY_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
-  WORKER_ID: z.string().min(1).optional(),
+  // Compose often interpolates unset optional vars as "". Treat blank as unset.
+  WORKER_ID: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.string().min(1).optional(),
+  ),
 })
 
 export type WorkerConfig = {

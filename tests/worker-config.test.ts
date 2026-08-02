@@ -40,4 +40,18 @@ describe('getWorkerConfig', () => {
 
     expect(getWorkerConfig(process.env).leaseSeconds).toBe(36)
   })
+
+  it('treats blank WORKER_ID as unset (Compose empty interpolation)', async () => {
+    process.env.WORKER_ID = ''
+    const { getWorkerConfig } = await import('../worker/src/config')
+
+    expect(getWorkerConfig(process.env).workerId).toBeUndefined()
+  })
+
+  it('keeps a non-empty WORKER_ID', async () => {
+    process.env.WORKER_ID = 'worker-1'
+    const { getWorkerConfig } = await import('../worker/src/config')
+
+    expect(getWorkerConfig(process.env).workerId).toBe('worker-1')
+  })
 })
