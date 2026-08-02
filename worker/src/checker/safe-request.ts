@@ -256,12 +256,21 @@ export async function safeHttpRequest(
 
     const selectedIp = selected.normalized
     const family = selected.family
-    pinnedLookup = ((_host, _options, callback) => {
-      ;(callback as (err: NodeJS.ErrnoException | null, address: string, family: number) => void)(
-        null,
-        selectedIp,
-        family,
-      )
+    // Node 20.19+/22 may call lookup with { all: true } (autoSelectFamily / happy eyeballs).
+    // Support both the single-address and all-addresses callback shapes.
+    pinnedLookup = ((_host, options, callback) => {
+      const cb = (typeof options === 'function' ? options : callback) as (
+        ...args: unknown[]
+      ) => void
+      const opts = (typeof options === 'function' ? undefined : options) as
+        { all?: boolean } | undefined
+
+      if (opts?.all) {
+        cb(null, [{ address: selectedIp, family }])
+        return
+      }
+
+      cb(null, selectedIp, family)
     }) as LookupFunction
   }
 

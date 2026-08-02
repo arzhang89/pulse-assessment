@@ -101,6 +101,22 @@ describe('performHttpCheck', () => {
       )
     })
     expect(pinned).toEqual({ address: '93.184.216.34', family: 4 })
+
+    // Node autoSelectFamily uses lookup(..., { all: true }, cb).
+    type LookupAllCb = (
+      host: string,
+      options: { all: true },
+      callback: (err: Error | null, addresses: Array<{ address: string; family: number }>) => void,
+    ) => void
+    const pinnedAll = await new Promise<Array<{ address: string; family: number }>>(
+      (resolve, reject) => {
+        ;(seenOptions!.lookup as LookupAllCb)('example.com', { all: true }, (err, addresses) => {
+          if (err) reject(err)
+          else resolve(addresses)
+        })
+      },
+    )
+    expect(pinnedAll).toEqual([{ address: '93.184.216.34', family: 4 }])
   })
 
   it('does not force IP SNI for literal HTTPS IP URLs', async () => {
