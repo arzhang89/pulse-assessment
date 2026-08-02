@@ -27,20 +27,29 @@ async function onSubmit() {
 
 <template>
   <div class="auth-shell">
-    <section class="panel stack" aria-labelledby="login-title">
+    <section class="panel stack-sm" aria-labelledby="login-title">
       <div>
+        <p class="page-kicker">Welcome back</p>
         <h1 id="login-title">Pulse</h1>
-        <p>Log in to manage your monitors.</p>
+        <p class="muted">Log in to manage your monitors.</p>
       </div>
 
-      <form class="stack" @submit.prevent="onSubmit">
-        <label>
-          Email
-          <input v-model="email" type="email" name="email" autocomplete="email" required />
-        </label>
-        <label>
-          Password
+      <form class="stack-sm" @submit.prevent="onSubmit">
+        <label class="field" for="login-email">
+          <span class="field-label">Email</span>
           <input
+            id="login-email"
+            v-model="email"
+            type="email"
+            name="email"
+            autocomplete="email"
+            required
+          />
+        </label>
+        <label class="field" for="login-password">
+          <span class="field-label">Password</span>
+          <input
+            id="login-password"
             v-model="password"
             type="password"
             name="password"
@@ -56,7 +65,7 @@ async function onSubmit() {
         </button>
       </form>
 
-      <p class="muted">
+      <p class="muted" style="margin: 0">
         Need an account?
         <NuxtLink to="/signup">Sign up</NuxtLink>
       </p>
