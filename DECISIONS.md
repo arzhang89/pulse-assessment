@@ -132,4 +132,6 @@ Significant design choices for Pulse, recorded as they are made. Extended in lat
 
 **Decision:** Webhook signing, email notifications, multiple destinations, charts, and retention/partitioning remain out of scope for this assessment.
 
-**Why:** Core product behavior and a production-shaped Compose deploy are complete and explainable within the assessment timebox. Remote VPS cutover still requires an explicitly authorized host, domain, DNS, and SSH path.
+**Why:** Core product behavior and a production-shaped Compose deploy are complete and explainable within the assessment timebox.
+
+**Live deploy:** The assessment VPS serves https://144-172-94-101.sslip.io from `/opt/pulse` with `/etc/pulse/.env` (not committed). SSH is key-only for `deploy` (root login and password auth disabled).

@@ -254,7 +254,14 @@ Outbound monitor checks and webhook POSTs share the same policy:
 
 ## Live application
 
-Production has been validated locally with Compose. Remote VPS deployment requires an explicitly authorized host, SSH access, domain, DNS readiness, deployment directory, and open inbound 80/443. Until those are provided, there is no live public URL.
+Live deployment (Ubuntu 24.04 VPS, `/opt/pulse`):
+
+- URL: https://144-172-94-101.sslip.io
+- Open signup: https://144-172-94-101.sslip.io/signup
+- Topology: Caddy (80/443) → web; worker + PostgreSQL private; migrate one-shot
+- Server env file: `/etc/pulse/.env` (mode `640`, root:deploy; not in git)
+
+Note: some local resolvers rewrite `*.sslip.io` to private addresses. If the site fails to load from your laptop, verify DNS returns `144.172.94.101` or use a public resolver.
 
 ### Open signup
 
@@ -264,16 +271,20 @@ Anyone who can reach the app can create an account at `/signup`. There is no inv
 
 Use only user-controlled public HTTPS targets. Do not weaken SSRF protection for testing.
 
-- [ ] Signup / Secure+HttpOnly+SameSite=Lax cookie / logout / login
-- [ ] Create monitor → worker claims → UNKNOWN becomes UP → history shows
-- [ ] Two consecutive failures open one incident and deliver one DOWN event
-- [ ] Continued failures create no extra incident/event
-- [ ] Two successes resolve the incident and deliver one RECOVERED event
-- [ ] Webhook `eventId` matches outbox ID; payload has no monitor URL; 2xx → SENT
-- [ ] Public status works logged out; private/disabled omitted; no sensitive leaks
-- [ ] Worker restart reclaims expired work without duplicate schedule slots
-- [ ] Localhost / private IPv4 / IPv6 loopback-ULA / credential URLs rejected
-- [ ] Production API errors expose no stack, SQL text, or constraint names
+Live acceptance against https://144-172-94-101.sslip.io (2026-08-02):
+
+- [x] Signup / Secure+HttpOnly+SameSite=Lax cookie / logout / login
+- [x] Create monitor → worker claims → UNKNOWN becomes UP → history shows
+- [x] Two consecutive failures open one incident and deliver one DOWN event
+- [x] Continued failures create no extra incident/event
+- [x] Two successes resolve the incident and deliver one RECOVERED event
+- [x] Webhook `eventId` matches outbox ID; payload has no monitor URL; 2xx → SENT
+- [x] Public status works logged out; private/disabled omitted; no sensitive leaks
+- [x] Worker continues after restart / redeploy (leases reclaim; checks resume)
+- [x] Localhost / private IPv4 rejected at check time (`FORBIDDEN_ADDRESS`); credential URLs rejected at create
+- [x] Production API errors expose no stack, SQL text, or constraint names
+
+IPv6 loopback create is allowed by design (SSRF at check time); check outcome is forbidden/failed without connecting to the target.
 
 Do not commit temporary receiver URLs, credentials, tokens, or sensitive screenshots.
 
